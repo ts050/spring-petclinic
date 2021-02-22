@@ -3,11 +3,22 @@
 # Add steps that build, run tests, deploy, and more:
 # https://aka.ms/yaml
 
-trigger:
-- main
 
+name: $(Build.DefinitionName)_$(SourceBranchName)_$(Date:yyyyMMdd)$(Rev:.r)
+
+trigger:
+- master
+
+schedules:
+- cron: "0,30 * * * *"
+  displayName: Every 30 mins
+  branches:
+    include:
+    - master
+    
 pool:
   name: Default
+  
 jobs:
 - job: RunsOnServer
   pool: Server
@@ -32,3 +43,39 @@ jobs:
   - upload: $(Build.ArtifactStagingDirectory)
     artifact: drop
 
+jobs: 
+- deployment: VMDeploy
+  displayName: web
+  environment:
+    name: DEV
+    resourceType: VirtualMachine
+  strategy:
+      rolling:
+        maxParallel: 2  #for percentages, mention as x%
+        preDeploy:
+          steps:
+          - download: current
+            artifact: drop
+          - script: echo initialize, cleanup, backup, install certs
+        deploy:
+          steps:
+          - task: Bash@3
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Modify deployment script based on the app type
+                echo "Starting deployment script run"
+                sudo java -jar '$(Pipeline.Workspace)/drop/**/target/*.jar'
+        routeTraffic:
+          steps:
+          - script: echo routing traffic
+        postRouteTraffic:
+          steps:
+          - script: echo health check post-route traffic
+        on:
+          failure:
+            steps:
+            - script: echo Restore from backup! This is on failure
+          success:
+            steps:
+            - script: echo Notify! This is on success
